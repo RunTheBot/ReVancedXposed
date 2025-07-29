@@ -1,5 +1,7 @@
 package io.github.chsbuffer.revancedxposed.spotify.misc
 
+import app.revanced.extension.shared.Logger
+import app.revanced.extension.spotify.misc.UnlockPremiumPatch
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -7,7 +9,6 @@ import io.github.chsbuffer.revancedxposed.Opcode
 import io.github.chsbuffer.revancedxposed.callMethod
 import io.github.chsbuffer.revancedxposed.findField
 import io.github.chsbuffer.revancedxposed.findFirstFieldByExactType
-import io.github.chsbuffer.revancedxposed.fingerprint
 import io.github.chsbuffer.revancedxposed.spotify.SpotifyHook
 import org.luckypray.dexkit.query.enums.StringMatchType
 import org.luckypray.dexkit.query.enums.UsingType
@@ -15,23 +16,23 @@ import org.luckypray.dexkit.result.MethodData
 import org.luckypray.dexkit.wrap.DexField
 import org.luckypray.dexkit.wrap.DexMethod
 import java.lang.reflect.Field
-import app.revanced.extension.shared.Logger
-import app.revanced.extension.spotify.misc.UnlockPremiumPatch
 
 @Suppress("UNCHECKED_CAST")
 fun SpotifyHook.UnlockPremium() {
     // Override the attributes map in the getter method.
     getDexMethod("productStateProtoFingerprint") {
-        fingerprint {
-            returns("Ljava/util/Map;")
-            classMatcher { descriptor = "Lcom/spotify/remoteconfig/internal/ProductStateProto;" }
-        }.also { method ->
+        findMethod {
+            matcher {
+                returns("Ljava/util/Map;")
+                addUsingClass { descriptor = "Lcom/spotify/remoteconfig/internal/ProductStateProto;" }
+            }
+        }.single().also { method ->
             getDexField("attributesMapField") {
                 method.usingFields.single().field
             }
         }
     }.hookMethod(object : XC_MethodHook() {
-        val field = getDexField("attributesMapField").toField()
+        val field by lazy { getDexField("attributesMapField").toField() }
         override fun beforeHookedMethod(param: MethodHookParam) {
             Logger.printDebug { field.get(param.thisObject)!!.toString() }
             UnlockPremiumPatch.overrideAttributes(field.get(param.thisObject) as Map<String, *>)
@@ -59,21 +60,21 @@ fun SpotifyHook.UnlockPremium() {
 
     // Enable choosing a specific song/artist via Google Assistant.
     getDexMethod("contextFromJsonFingerprint") {
-        fingerprint {
-            opcodes(
-                Opcode.INVOKE_STATIC,
-                Opcode.MOVE_RESULT_OBJECT,
-                Opcode.INVOKE_VIRTUAL,
-                Opcode.MOVE_RESULT_OBJECT,
-                Opcode.INVOKE_STATIC
-            )
-            methodMatcher {
-                name("fromJson")
-                declaredClass(
-                    "voiceassistants.playermodels.ContextJsonAdapter", StringMatchType.EndsWith
+        findMethod {
+            matcher {
+                opcodes(
+                    Opcode.INVOKE_STATIC,
+                    Opcode.MOVE_RESULT_OBJECT,
+                    Opcode.INVOKE_VIRTUAL,
+                    Opcode.MOVE_RESULT_OBJECT,
+                    Opcode.INVOKE_STATIC
                 )
+                addInvoke {
+                    name("fromJson")
+                    declaredClass("voiceassistants.playermodels.ContextJsonAdapter", StringMatchType.EndsWith)
+                }
             }
-        }
+        }.single()
     }.hookMethod(object : XC_MethodHook() {
         fun removeStationString(field: Field, obj: Any) {
             field.set(obj, UnlockPremiumPatch.removeStationString(field.get(obj) as String))
@@ -89,7 +90,7 @@ fun SpotifyHook.UnlockPremium() {
 
     // Disable forced shuffle when asking for an album/playlist via Google Assistant.
     XposedHelpers.findAndHookMethod(
-        "com.spotify.player.model.command.options.AutoValue_PlayerOptionOverrides$Builder",
+        "com.spotify.player.model.command.options.AutoValue_PlayerOptionOverrides.Builder",
         classLoader,
         "build",
         object : XC_MethodHook() {
@@ -100,19 +101,23 @@ fun SpotifyHook.UnlockPremium() {
 
     // Hook the method which adds context menu items and return before adding if the item is a Premium ad.
     val contextMenuViewModelClass = getDexClass("contextMenuViewModelClassFingerprint") {
-        fingerprint {
-            strings("ContextMenuViewModel(header=")
-        }.declaredClass!!
+        findMethod {
+            matcher {
+                strings("ContextMenuViewModel(header=")
+            }
+        }.single().declaredClass!!
     }
 
     runCatching {
         getDexMethod("oldContextMenuViewModelAddItemFingerprint") {
-            fingerprint {
-                classMatcher { className(contextMenuViewModelClass.className) }
-                parameters("L")
-                returns("V")
-                methodMatcher { addInvoke { name = "add" } }
-            }
+            findMethod {
+                matcher {
+                    addUsingClass(contextMenuViewModelClass)
+                    parameters("Ljava/lang/Object;")
+                    returns("V")
+                    addInvoke { name = "add" }
+                }
+            }.single()
         }.hookMethod(object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 if (UnlockPremiumPatch.isFilteredContextMenuItem(param.args[0].callMethod("getViewModel"))) {
@@ -141,15 +146,15 @@ fun SpotifyHook.UnlockPremium() {
     }
 
     fun org.luckypray.dexkit.DexKitBridge.structureGetSectionsFingerprint(className: String): MethodData {
-        return fingerprint {
-            classMatcher { className(className, StringMatchType.EndsWith) }
-            methodMatcher {
+        return findMethod {
+            matcher {
+                addUsingClass(className, StringMatchType.EndsWith)
                 addUsingField {
                     usingType = UsingType.Read
                     name = "sections_"
                 }
             }
-        }
+        }.single()
     }
 
     // Remove ads sections from home.
@@ -165,7 +170,7 @@ fun SpotifyHook.UnlockPremium() {
     })
     // Remove ads sections from browser.
     getDexMethod("browseStructureGetSectionsFingerprint") {
-        structureGetSectionsFingerprint("browsita.v1.resolved.BrowseStructure")
+        structureGetSectionsFingerprints("browsita.v1.resolved.BrowseStructure")
     }.hookMethod(object : XC_MethodHook() {
         override fun afterHookedMethod(param: MethodHookParam) {
             val sections = param.result
@@ -177,11 +182,13 @@ fun SpotifyHook.UnlockPremium() {
 
     // Remove pendragon (pop up ads) requests and return the errors instead.
     val replaceFetchRequestSingleWithError = object : XC_MethodHook() {
-        val justMethod =
+        val justMethod by lazy {
             DexMethod("Lio/reactivex/rxjava3/core/Single;->just(Ljava/lang/Object;)Lio/reactivex/rxjava3/core/Single;").toMethod()
+        }
 
-        val onErrorField =
+        val onErrorField by lazy {
             DexField("Lio/reactivex/rxjava3/internal/operators/single/SingleOnErrorReturn;->b:Lio/reactivex/rxjava3/functions/Function;").toField()
+        }
 
         override fun afterHookedMethod(param: MethodHookParam) {
             if (!param.result.javaClass.name.endsWith("SingleOnErrorReturn")) return

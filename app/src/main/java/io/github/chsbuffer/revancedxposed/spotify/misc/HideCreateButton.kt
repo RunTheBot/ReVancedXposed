@@ -4,22 +4,26 @@ import app.revanced.extension.spotify.layout.hide.createbutton.HideCreateButtonP
 import de.robv.android.xposed.XC_MethodHook
 import io.github.chsbuffer.revancedxposed.AccessFlags
 import io.github.chsbuffer.revancedxposed.Opcode
-import io.github.chsbuffer.revancedxposed.fingerprint
+import io.github.chsbuffer.revancedxposed.spotify.SpotifyHook
 
 fun SpotifyHook.HideCreateButton() {
     val oldNavigationBarAddItemMethod = runCatching {
         getDexMethod("oldNavigationBarAddItemFingerprint") {
-            fingerprint {
-                strings("Bottom navigation tabs exceeds maximum of 5 tabs")
-            }
+            findMethod {
+                matcher {
+                    strings("Bottom navigation tabs exceeds maximum of 5 tabs")
+                }
+            }.single()
         }
     }.getOrNull()
 
     val navigationBarItemSetClassDef = runCatching {
         getDexClass("navigationBarItemSetClassFingerprint") {
-            fingerprint {
-                strings("NavigationBarItemSet(")
-            }.declaredClass!!
+            findMethod {
+                matcher {
+                    strings("NavigationBarItemSet(")
+                }
+            }.single().declaredClass!!
         }
     }.getOrNull()
 
@@ -31,18 +35,16 @@ fun SpotifyHook.HideCreateButton() {
         // Create button. So, for every parameter passed to the method, invoke our extension method and overwrite it
         // to null in case it is the Create button.
         getDexMethod("navigationBarItemSetConstructorFingerprint") {
-            fingerprint {
-                accessFlags(AccessFlags.PUBLIC, AccessFlags.CONSTRUCTOR)
-                // Make sure the method checks whether navigation bar items are null before adding them.
-                // If this is not true, then we cannot patch the method and potentially transform the parameters into null.
-                opcodes(Opcode.IF_EQZ, Opcode.INVOKE_VIRTUAL)
-                classMatcher {
-                    className = navigationBarItemSetClassDef.className
-                }
-                methodMatcher {
+            findMethod {
+                matcher {
+                    accessFlags(AccessFlags.PUBLIC, AccessFlags.CONSTRUCTOR)
+                    // Make sure the method checks whether navigation bar items are null before adding them.
+                    // If this is not true, then we cannot patch the method and potentially transform the parameters into null.
+                    opcodes(Opcode.IF_EQZ, Opcode.INVOKE_VIRTUAL)
+                    addUsingClass(navigationBarItemSetClassDef)
                     addInvoke { name = "add" }
                 }
-            }
+            }.single()
         }.hookMethod(object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 for ((i, arg) in param.args.withIndex()) {

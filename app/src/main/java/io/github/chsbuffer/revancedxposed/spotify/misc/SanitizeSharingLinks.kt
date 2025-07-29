@@ -5,31 +5,31 @@ import app.revanced.extension.spotify.misc.privacy.SanitizeSharingLinksPatch
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
 import io.github.chsbuffer.revancedxposed.ScopedHook
-import io.github.chsbuffer.revancedxposed.fingerprint
+import io.github.chsbuffer.revancedxposed.spotify.SpotifyHook
 import java.lang.reflect.Modifier
 
 fun SpotifyHook.SanitizeSharingLinks() {
     getDexMethod("shareCopyUrlFingerprint") {
         runCatching {
-            fingerprint {
+            findMethod { matcher {
                 returns("Ljava/lang/Object;")
                 parameters("Ljava/lang/Object;")
                 strings("clipboard", "Spotify Link")
-                methodMatcher { name = "invokeSuspend" }
-            }
+                name("invokeSuspend")
+            }}.single()
         }.getOrElse {
-            fingerprint {
+            findMethod { matcher {
                 returns("Ljava/lang/Object;")
                 parameters("Ljava/lang/Object;")
                 strings("clipboard", "createNewSession failed")
-                methodMatcher { name = "apply" }
-            }
+                name("apply")
+            }}.single()
         }
     }.hookMethod(
         ScopedHook(
             XposedHelpers.findMethodExact(
                 ClipData::class.java.name,
-                lpparam.classLoader,
+                classLoader,
                 "newPlainText",
                 CharSequence::class.java,
                 CharSequence::class.java
@@ -46,27 +46,23 @@ fun SpotifyHook.SanitizeSharingLinks() {
         runCatching {
             findMethod {
                 matcher {
-                    returnType("java.lang.String")
-                    addUsingNumber('\n'.code)
-                    modifiers = Modifier.PUBLIC or Modifier.STATIC
-                    paramTypes(null, "java.lang.String")
+                    returns("Ljava/lang/String;")
+                    usingNumbers('\n'.code)
+                    modifiers(Modifier.PUBLIC or Modifier.STATIC)
+                    parameters("Ljava/lang/String;")
                 }
             }.single {
-                // exclude
-                // `(PlayerState, String) -> String` usingNumbers(1, 10); usingStrings("")
                 !it.usingStrings.contains("")
             }
         }.getOrElse {
             findMethod {
                 matcher {
-                    returnType("java.lang.String")
-                    addUsingNumber('\n'.code)
-                    modifiers = Modifier.PUBLIC
-                    paramTypes("com.spotify.share.social.sharedata.ShareData", "java.lang.String")
+                    returns("Ljava/lang/String;")
+                    usingNumbers('\n'.code)
+                    modifiers(Modifier.PUBLIC)
+                    parameters("Lcom/spotify/share/social/sharedata/ShareData;", "Ljava/lang/String;")
                 }
             }.single {
-                // exclude
-                // `(PlayerState, String) -> String` usingNumbers(1, 10); usingStrings("")
                 !it.usingStrings.contains("")
             }
         }
