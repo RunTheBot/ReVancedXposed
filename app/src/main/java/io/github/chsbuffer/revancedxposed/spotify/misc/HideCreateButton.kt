@@ -1,4 +1,4 @@
-package io.github.chsbuffer.revancedxposed.spotify
+package io.github.chsbuffer.revancedxposed.spotify.misc
 
 import app.revanced.extension.spotify.layout.hide.createbutton.HideCreateButtonPatch
 import de.robv.android.xposed.XC_MethodHook
